@@ -2,10 +2,9 @@ import { useCallback, useMemo, useState } from 'react'
 import { sites } from '../data/sites'
 import type { DetectionStatus } from '../data/types'
 import { defaultFilters } from '../lib/aggregate'
-import { getAncestors, nodeById } from '../lib/taxonomyTree'
+import { nodeById } from '../lib/taxonomyTree'
 
 export type ColorMode = 'relative' | 'absolute'
-export type PinKind = 'pin' | 'star'
 
 const HIDE_RARE_THRESHOLD = 5
 const TOP_N = 20
@@ -20,46 +19,41 @@ export function useHeatmapState() {
     new Set(sites.map((s) => s.id)),
   )
   const [groupByHabitat, setGroupByHabitat] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
-  const [drillPath, setDrillPath] = useState<string[]>([])
-  const [pinned, setPinned] = useState<Map<string, PinKind>>(new Map())
+  const [expandedClassIds, setExpandedClassIds] = useState<Set<string>>(new Set())
+  const [pinned, setPinned] = useState<Set<string>>(new Set())
   const [colorMode, setColorMode] = useState<ColorMode>('relative')
   const [showCounts, setShowCounts] = useState(false)
   const [hideRareEnabled, setHideRareEnabled] = useState(false)
-  const [otherExpanded, setOtherExpanded] = useState(false)
+  const [otherExpandedByClass, setOtherExpandedByClass] = useState<Set<string>>(new Set())
   const [highlightedTaxonId, setHighlightedTaxonId] = useState<string | null>(null)
 
   const filters = useMemo(() => ({ start, end, statuses }), [start, end, statuses])
 
-  const currentParentId = drillPath.length ? drillPath[drillPath.length - 1] : null
-
-  const drillInto = useCallback((taxonId: string) => {
-    setDrillPath((path) => [...path, taxonId])
-    setOtherExpanded(false)
-    setHighlightedTaxonId(null)
-  }, [])
-
-  const goToBreadcrumb = useCallback((index: number) => {
-    // index -1 = root ("All"); 0..n-1 = position within drillPath
-    setDrillPath((path) => (index < 0 ? [] : path.slice(0, index + 1)))
-    setOtherExpanded(false)
-    setHighlightedTaxonId(null)
-  }, [])
-
-  const togglePin = useCallback((taxonId: string) => {
-    setPinned((prev) => {
-      const next = new Map(prev)
-      if (next.get(taxonId) === 'pin') next.delete(taxonId)
-      else next.set(taxonId, 'pin')
+  const toggleClassExpanded = useCallback((classId: string) => {
+    setExpandedClassIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(classId)) next.delete(classId)
+      else next.add(classId)
       return next
     })
   }, [])
 
-  const toggleStar = useCallback((taxonId: string) => {
+  const toggleOtherExpandedForClass = useCallback((classId: string) => {
+    setOtherExpandedByClass((prev) => {
+      const next = new Set(prev)
+      if (next.has(classId)) next.delete(classId)
+      else next.add(classId)
+      return next
+    })
+  }, [])
+
+  const togglePin = useCallback((speciesId: string) => {
     setPinned((prev) => {
-      const next = new Map(prev)
-      if (next.get(taxonId) === 'star') next.delete(taxonId)
-      else next.set(taxonId, 'star')
+      const next = new Set(prev)
+      if (next.has(speciesId)) next.delete(speciesId)
+      else next.add(speciesId)
       return next
     })
   }, [])
@@ -94,18 +88,15 @@ export function useHeatmapState() {
     })
   }, [])
 
+  /** Expand a species' class (and its "Other" bucket, if it's tucked inside one) and highlight it. */
   const jumpToSpecies = useCallback((speciesId: string) => {
-    const ancestors = getAncestors(speciesId) // [Class, Order, Family, Genus, Species]
-    const path = ancestors.slice(0, -1).map((n) => n.id)
-    setDrillPath(path)
-    setOtherExpanded(false)
+    const species = nodeById.get(speciesId)
+    if (!species?.parentId) return
+    const classId = species.parentId
+    setExpandedClassIds((prev) => new Set(prev).add(classId))
+    setOtherExpandedByClass((prev) => new Set(prev).add(classId))
     setHighlightedTaxonId(speciesId)
   }, [])
-
-  const breadcrumb = useMemo(
-    () => drillPath.map((id) => nodeById.get(id)).filter((n): n is NonNullable<typeof n> => n !== undefined),
-    [drillPath],
-  )
 
   return {
     filters,
@@ -116,14 +107,12 @@ export function useHeatmapState() {
     setAllSites,
     setDateRange,
     toggleStatus,
-    currentParentId,
-    drillPath,
-    breadcrumb,
-    drillInto,
-    goToBreadcrumb,
+    filtersOpen,
+    setFiltersOpen,
+    expandedClassIds,
+    toggleClassExpanded,
     pinned,
     togglePin,
-    toggleStar,
     colorMode,
     setColorMode,
     showCounts,
@@ -132,8 +121,8 @@ export function useHeatmapState() {
     setHideRareEnabled,
     hideRareThreshold: HIDE_RARE_THRESHOLD,
     topN: TOP_N,
-    otherExpanded,
-    setOtherExpanded,
+    otherExpandedByClass,
+    toggleOtherExpandedForClass,
     highlightedTaxonId,
     setHighlightedTaxonId,
     jumpToSpecies,

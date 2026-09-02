@@ -1,4 +1,4 @@
-export type Rank = 'Class' | 'Order' | 'Family' | 'Genus' | 'Species'
+export type Rank = 'Class' | 'Species'
 
 export interface Site {
   id: string

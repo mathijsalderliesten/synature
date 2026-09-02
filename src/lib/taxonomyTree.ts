@@ -1,5 +1,5 @@
 import { taxonomy } from '../data/taxonomy'
-import type { Rank, TaxonNode } from '../data/types'
+import type { TaxonNode } from '../data/types'
 
 export const nodeById = new Map(taxonomy.map((n) => [n.id, n]))
 
@@ -44,9 +44,3 @@ export function getDescendantSpeciesIds(taxonId: string): string[] {
   return result
 }
 
-export const nextRank: Partial<Record<Rank, Rank>> = {
-  Class: 'Order',
-  Order: 'Family',
-  Family: 'Genus',
-  Genus: 'Species',
-}

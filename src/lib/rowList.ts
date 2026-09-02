@@ -1,6 +1,7 @@
 import type { Rank, TaxonNode } from '../data/types'
 import type { Column, Filters } from './aggregate'
 import { rowCounts, sumCounts } from './aggregate'
+import { getChildren } from './taxonomyTree'
 
 export interface RowEntry {
   id: string
@@ -75,4 +76,33 @@ export function buildRowList(
   }
 
   return { rows: top, otherRow, hiddenRareCount }
+}
+
+export interface ClassSection {
+  classRow: RowEntry
+  speciesRows: RowEntry[]
+  otherRow: RowEntry | null
+  hiddenRareCount: number
+}
+
+/** One section per Class, each with its own (unpinned) species top-N + Other, sorted by class total. */
+export function buildClassSections(
+  classNodes: TaxonNode[],
+  columns: Column[],
+  filters: Filters,
+  pinned: Set<string>,
+  opts: { topN: number; hideRareThreshold: number | null; otherExpandedClassIds: Set<string> },
+): ClassSection[] {
+  const sections = classNodes.map((classNode): ClassSection => {
+    const classRow = buildRowEntry(classNode, columns, filters)
+    const speciesNodes = getChildren(classNode.id).filter((n) => !pinned.has(n.id))
+    const { rows, otherRow, hiddenRareCount } = buildRowList(speciesNodes, columns, filters, {
+      topN: opts.topN,
+      hideRareThreshold: opts.hideRareThreshold,
+      otherExpanded: opts.otherExpandedClassIds.has(classNode.id),
+    })
+    return { classRow, speciesRows: rows, otherRow, hiddenRareCount }
+  })
+  sections.sort((a, b) => b.classRow.total - a.classRow.total)
+  return sections
 }

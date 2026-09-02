@@ -1,11 +1,13 @@
-import type { ColorMode, PinKind } from '../hooks/useHeatmapState'
+import { useEffect, useRef } from 'react'
 import type { Column } from '../lib/aggregate'
 import { readableTextColor, valueColor, valueColorLog } from '../lib/color'
 import { formatCount } from '../lib/format'
-import type { RowEntry } from '../lib/rowList'
-import { PinIcon, StarIcon } from './RowIcons'
+import type { ClassSection, RowEntry } from '../lib/rowList'
+import { nodeById } from '../lib/taxonomyTree'
+import type { ColorMode } from '../hooks/useHeatmapState'
+import { PinIcon } from './RowIcons'
 
-const LABEL_W = 212
+const LABEL_W = 220
 const CELL_W = 64
 
 function Cell({
@@ -51,88 +53,256 @@ function Cell({
   )
 }
 
-interface RowProps {
-  row: RowEntry
-  columns: Column[]
-  colorMode: ColorMode
-  globalMax: number
-  showCounts: boolean
-  maxDisplayedTotal: number
-  pinKind?: PinKind
-  onTogglePin: (id: string) => void
-  onToggleStar: (id: string) => void
-  onDrillInto: (id: string) => void
-  onToggleOther: () => void
-  highlighted: boolean
-}
-
-function Row({
+function ClassRow({
   row,
   columns,
   colorMode,
   globalMax,
   showCounts,
-  maxDisplayedTotal,
-  pinKind,
+  expanded,
+  onToggleExpand,
+}: {
+  row: RowEntry
+  columns: Column[]
+  colorMode: ColorMode
+  globalMax: number
+  showCounts: boolean
+  expanded: boolean
+  onToggleExpand: () => void
+}) {
+  return (
+    <RowShellWrapper row={row} columns={columns} colorMode={colorMode} globalMax={globalMax} showCounts={showCounts}>
+      <button type="button" onClick={onToggleExpand} className="flex min-w-0 items-center gap-1.5 text-left">
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          className={`shrink-0 text-neutral-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          fill="none"
+        >
+          <path d="M3 1.5 7 5l-4 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="truncate text-sm font-semibold text-neutral-900">{row.name}</span>
+      </button>
+    </RowShellWrapper>
+  )
+}
+
+export interface HeatmapGridProps {
+  pinnedRows: RowEntry[]
+  pinned: Set<string>
+  sections: ClassSection[]
+  columns: Column[]
+  colorMode: ColorMode
+  showCounts: boolean
+  onTogglePin: (id: string) => void
+  expandedClassIds: Set<string>
+  onToggleClassExpanded: (id: string) => void
+  onToggleOtherForClass: (id: string) => void
+  highlightedTaxonId: string | null
+  topN: number
+}
+
+export function HeatmapGrid({
+  pinnedRows,
+  pinned,
+  sections,
+  columns,
+  colorMode,
+  showCounts,
   onTogglePin,
-  onToggleStar,
-  onDrillInto,
-  onToggleOther,
+  expandedClassIds,
+  onToggleClassExpanded,
+  onToggleOtherForClass,
+  highlightedTaxonId,
+  topN,
+}: HeatmapGridProps) {
+  const allRows = [
+    ...pinnedRows,
+    ...sections.flatMap((s) => [s.classRow, ...s.speciesRows, ...(s.otherRow ? [s.otherRow] : [])]),
+  ]
+  const globalMax = Math.max(1, ...allRows.flatMap((r) => [...r.counts.values()]))
+
+  if (columns.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed border-neutral-200 px-4 py-10 text-center text-sm text-neutral-400">
+        No sites selected. Choose at least one site to show the heatmap.
+      </p>
+    )
+  }
+
+  return (
+    <div>
+      {pinnedRows.length > 0 && (
+        <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-neutral-400">Pinned</div>
+      )}
+      <div className="max-h-[560px] overflow-auto rounded-lg border border-neutral-100">
+        {pinnedRows.map((row) => {
+          const classId = nodeById.get(row.taxonId)?.parentId
+          const className = classId ? nodeById.get(classId)?.name : undefined
+          return (
+            <RowShellWrapper
+              key={`pin-${row.id}`}
+              row={row}
+              columns={columns}
+              colorMode={colorMode}
+              globalMax={globalMax}
+              showCounts={showCounts}
+              tinted
+              highlighted={highlightedTaxonId === row.taxonId}
+            >
+              <button
+                type="button"
+                title={pinned.has(row.taxonId) ? 'Unpin' : 'Pin'}
+                onClick={() => onTogglePin(row.taxonId)}
+                className="shrink-0 rounded p-0.5 text-neutral-300 hover:bg-neutral-100 hover:text-violet-600"
+              >
+                <PinIcon active={pinned.has(row.taxonId)} />
+              </button>
+              <span className="min-w-0 truncate text-sm font-medium text-neutral-800" title={row.name}>
+                {row.commonName ?? row.name}
+              </span>
+              {className && (
+                <span className="shrink-0 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500">
+                  {className}
+                </span>
+              )}
+            </RowShellWrapper>
+          )
+        })}
+
+        {sections.map((section) => {
+          const expanded = expandedClassIds.has(section.classRow.taxonId)
+          return (
+            <div key={section.classRow.id}>
+              <ClassRow
+                row={section.classRow}
+                columns={columns}
+                colorMode={colorMode}
+                globalMax={globalMax}
+                showCounts={showCounts}
+                expanded={expanded}
+                onToggleExpand={() => onToggleClassExpanded(section.classRow.taxonId)}
+              />
+              {expanded && (
+                <>
+                  {section.speciesRows.length === 0 && !section.otherRow && (
+                    <p className="px-4 py-3 pl-8 text-xs text-neutral-400">No species match the current filters.</p>
+                  )}
+                  {section.speciesRows.map((row) => (
+                    <RowShellWrapper
+                      key={row.id}
+                      row={row}
+                      columns={columns}
+                      colorMode={colorMode}
+                      globalMax={globalMax}
+                      showCounts={showCounts}
+                      highlighted={highlightedTaxonId === row.taxonId}
+                      indent
+                    >
+                      <button
+                        type="button"
+                        title={pinned.has(row.taxonId) ? 'Unpin' : 'Pin row (keeps it visible at the top)'}
+                        onClick={() => onTogglePin(row.taxonId)}
+                        className="shrink-0 rounded p-0.5 text-neutral-300 hover:bg-neutral-100 hover:text-violet-600"
+                      >
+                        <PinIcon active={pinned.has(row.taxonId)} />
+                      </button>
+                      <span className="min-w-0 truncate text-sm text-neutral-700" title={row.name}>
+                        {row.commonName ?? row.name}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500">
+                        {section.classRow.name}
+                      </span>
+                    </RowShellWrapper>
+                  ))}
+                  {section.otherRow && (
+                    <RowShellWrapper
+                      row={section.otherRow}
+                      columns={columns}
+                      colorMode={colorMode}
+                      globalMax={globalMax}
+                      showCounts={showCounts}
+                      indent
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onToggleOtherForClass(section.classRow.taxonId)}
+                        className="min-w-0 truncate text-left text-sm text-neutral-600 hover:text-violet-700 hover:underline"
+                      >
+                        {section.otherRow.name}
+                      </button>
+                    </RowShellWrapper>
+                  )}
+                  {section.otherRow === null && section.speciesRows.length > topN && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleOtherForClass(section.classRow.taxonId)}
+                      className="w-full border-t border-neutral-100 px-3 py-1.5 pl-8 text-left text-[11px] text-violet-600 hover:bg-violet-50"
+                    >
+                      Collapse back into &ldquo;Other&rdquo;
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })}
+
+        <FooterLabels columns={columns} />
+      </div>
+    </div>
+  )
+}
+
+function RowShellWrapper({
+  row,
+  columns,
+  colorMode,
+  globalMax,
+  showCounts,
   highlighted,
-}: RowProps) {
+  tinted,
+  indent,
+  children,
+}: {
+  row: RowEntry
+  columns: Column[]
+  colorMode: ColorMode
+  globalMax: number
+  showCounts: boolean
+  highlighted?: boolean
+  tinted?: boolean
+  indent?: boolean
+  children: React.ReactNode
+}) {
   const rowMax = Math.max(0, ...row.counts.values())
-  const magnitudePct = maxDisplayedTotal > 0 ? Math.max(2, (row.total / maxDisplayedTotal) * 100) : 0
-  const drillable = !row.isOther && row.rank !== undefined && row.rank !== 'Species'
-  const clickable = drillable || row.isOther
+  const bg = highlighted ? 'bg-violet-50' : tinted ? 'bg-violet-50/30 hover:bg-violet-50/50' : 'hover:bg-neutral-50'
+  const labelBg = highlighted ? 'bg-violet-50' : tinted ? 'bg-[#fbf9ff]' : 'bg-white'
+
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!highlighted) return
+    // Center the row within its scroll container via a direct scrollTop write
+    // (not the scrollIntoView API, which triggered a headless-Chromium paint bug).
+    const el = ref.current
+    const container = el?.closest<HTMLElement>('.overflow-auto')
+    if (!el || !container) return
+    const elRect = el.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    if (elRect.top < containerRect.top || elRect.bottom > containerRect.bottom) {
+      container.scrollTop += elRect.top - containerRect.top - containerRect.height / 2 + elRect.height / 2
+    }
+  }, [highlighted])
 
   return (
     <div
-      className={`grid border-b border-neutral-100 transition-colors last:border-b-0 ${
-        highlighted ? 'bg-violet-50' : pinKind ? 'bg-violet-50/30 hover:bg-violet-50/50' : 'hover:bg-neutral-50'
-      }`}
+      ref={ref}
+      className={`grid border-b border-neutral-100 transition-colors last:border-b-0 ${bg}`}
       style={{ gridTemplateColumns: `${LABEL_W}px repeat(${columns.length}, ${CELL_W}px)` }}
     >
-      <div
-        className={`sticky left-0 z-10 flex min-w-0 flex-col justify-center gap-1 px-2 py-1.5 ${
-          highlighted ? 'bg-violet-50' : pinKind ? 'bg-[#fbf9ff]' : 'bg-white'
-        }`}
-      >
-        <div className="flex min-w-0 items-center gap-1">
-          {!row.isOther && (
-            <>
-              <button
-                type="button"
-                title={pinKind === 'pin' ? 'Unpin row' : 'Pin row (stays visible while you drill elsewhere)'}
-                onClick={() => onTogglePin(row.taxonId)}
-                className="shrink-0 rounded p-0.5 text-neutral-300 hover:bg-neutral-100 hover:text-neutral-500"
-              >
-                <PinIcon active={pinKind === 'pin'} />
-              </button>
-              <button
-                type="button"
-                title={pinKind === 'star' ? 'Remove favorite' : 'Favorite (always pinned to top)'}
-                onClick={() => onToggleStar(row.taxonId)}
-                className="shrink-0 rounded p-0.5 text-neutral-300 hover:bg-neutral-100 hover:text-amber-500"
-              >
-                <StarIcon active={pinKind === 'star'} />
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => (row.isOther ? onToggleOther() : drillable && onDrillInto(row.taxonId))}
-            title={row.commonName ? `${row.commonName} (${row.name})` : row.name}
-            className={`min-w-0 truncate text-left text-sm font-medium text-neutral-800 ${
-              clickable ? 'cursor-pointer hover:text-violet-700 hover:underline' : 'cursor-default'
-            }`}
-          >
-            {row.commonName ?? row.name}
-          </button>
-          {drillable && <span className="shrink-0 text-[10px] text-neutral-300">›</span>}
-        </div>
-        <div className="h-1 w-full max-w-[150px] rounded-full bg-neutral-100">
-          <div className="h-1 rounded-full bg-violet-400" style={{ width: `${magnitudePct}%` }} />
-        </div>
+      <div className={`sticky left-0 z-10 flex min-w-0 items-center gap-1 px-2 py-1.5 ${indent ? 'pl-6' : ''} ${labelBg}`}>
+        {children}
       </div>
       {columns.map((col) => (
         <Cell key={col.id} row={row} column={col} colorMode={colorMode} rowMax={rowMax} globalMax={globalMax} showCounts={showCounts} />
@@ -158,122 +328,6 @@ function FooterLabels({ columns }: { columns: Column[] }) {
           </span>
         </div>
       ))}
-    </div>
-  )
-}
-
-export interface HeatmapGridProps {
-  pinnedRows: RowEntry[]
-  pinned: Map<string, PinKind>
-  mainRows: RowEntry[]
-  otherRow: RowEntry | null
-  columns: Column[]
-  colorMode: ColorMode
-  showCounts: boolean
-  onTogglePin: (id: string) => void
-  onToggleStar: (id: string) => void
-  onDrillInto: (id: string) => void
-  otherExpanded: boolean
-  onToggleOtherExpanded: () => void
-  highlightedTaxonId: string | null
-}
-
-export function HeatmapGrid({
-  pinnedRows,
-  pinned,
-  mainRows,
-  otherRow,
-  columns,
-  colorMode,
-  showCounts,
-  onTogglePin,
-  onToggleStar,
-  onDrillInto,
-  otherExpanded,
-  onToggleOtherExpanded,
-  highlightedTaxonId,
-}: HeatmapGridProps) {
-  const allRows = [...pinnedRows, ...mainRows, ...(otherRow ? [otherRow] : [])]
-  const maxDisplayedTotal = Math.max(1, ...allRows.map((r) => r.total))
-  const globalMax = Math.max(1, ...allRows.flatMap((r) => [...r.counts.values()]))
-
-  if (columns.length === 0) {
-    return (
-      <p className="rounded-lg border border-dashed border-neutral-200 px-4 py-10 text-center text-sm text-neutral-400">
-        No sites selected. Choose at least one site to show the heatmap.
-      </p>
-    )
-  }
-
-  return (
-    <div>
-      {pinnedRows.length > 0 && (
-        <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-neutral-400">Pinned</div>
-      )}
-      <div className="max-h-[500px] overflow-auto rounded-lg border border-neutral-100">
-        {pinnedRows.map((row) => (
-          <Row
-            key={`pin-${row.id}`}
-            row={row}
-            columns={columns}
-            colorMode={colorMode}
-            globalMax={globalMax}
-            showCounts={showCounts}
-            maxDisplayedTotal={maxDisplayedTotal}
-            pinKind={pinned.get(row.taxonId)}
-            onTogglePin={onTogglePin}
-            onToggleStar={onToggleStar}
-            onDrillInto={onDrillInto}
-            onToggleOther={onToggleOtherExpanded}
-            highlighted={highlightedTaxonId === row.taxonId}
-          />
-        ))}
-        {mainRows.map((row) => (
-          <Row
-            key={row.id}
-            row={row}
-            columns={columns}
-            colorMode={colorMode}
-            globalMax={globalMax}
-            showCounts={showCounts}
-            maxDisplayedTotal={maxDisplayedTotal}
-            pinKind={pinned.get(row.taxonId)}
-            onTogglePin={onTogglePin}
-            onToggleStar={onToggleStar}
-            onDrillInto={onDrillInto}
-            onToggleOther={onToggleOtherExpanded}
-            highlighted={highlightedTaxonId === row.taxonId}
-          />
-        ))}
-        {otherRow && (
-          <Row
-            row={otherRow}
-            columns={columns}
-            colorMode={colorMode}
-            globalMax={globalMax}
-            showCounts={showCounts}
-            maxDisplayedTotal={maxDisplayedTotal}
-            onTogglePin={onTogglePin}
-            onToggleStar={onToggleStar}
-            onDrillInto={onDrillInto}
-            onToggleOther={onToggleOtherExpanded}
-            highlighted={false}
-          />
-        )}
-        {otherExpanded && (
-          <button
-            type="button"
-            onClick={onToggleOtherExpanded}
-            className="w-full border-t border-neutral-100 px-3 py-1.5 text-left text-[11px] text-violet-600 hover:bg-violet-50"
-          >
-            Collapse back into &ldquo;Other&rdquo;
-          </button>
-        )}
-        {mainRows.length === 0 && !otherRow && pinnedRows.length === 0 && (
-          <p className="px-4 py-10 text-center text-sm text-neutral-400">No taxa match the current filters.</p>
-        )}
-        <FooterLabels columns={columns} />
-      </div>
     </div>
   )
 }

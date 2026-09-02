@@ -12,17 +12,3 @@ export function PinIcon({ active }: { active: boolean }) {
     </svg>
   )
 }
-
-export function StarIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-      <path
-        d="M8 1.5l1.9 4.2 4.6.5-3.4 3.2.9 4.6L8 11.8l-4 2.2.9-4.6-3.4-3.2 4.6-.5L8 1.5z"
-        fill={active ? '#d97706' : 'none'}
-        stroke={active ? '#d97706' : 'currentColor'}
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
