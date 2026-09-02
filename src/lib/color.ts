@@ -53,3 +53,20 @@ export function valueColor(value: number, max: number, gamma = 0.62): string {
 export function cssGradient(): string {
   return `linear-gradient(to right, ${PURPLE_STOPS.join(', ')})`
 }
+
+/** Log-scaled color against a single global max, for the Absolute color mode. */
+export function valueColorLog(value: number, max: number): string {
+  if (value <= 0 || max <= 0) return EMPTY_CELL_COLOR
+  const t = Math.log10(value + 1) / Math.log10(max + 1)
+  return purpleRamp(Math.min(1, t))
+}
+
+/** Perceived luminance, to pick readable text color against a cell fill. */
+export function readableTextColor(bgHex: string): string {
+  const n = parseInt(bgHex.slice(1), 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.6 ? '#3f2d63' : '#ffffff'
+}

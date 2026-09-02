@@ -1,30 +1,31 @@
-function ControlPill({ label, value }: { label: string; value: string }) {
-  return (
-    <button
-      type="button"
-      className="flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs text-neutral-600 shadow-sm transition-colors hover:border-neutral-300 hover:bg-neutral-50"
-    >
-      <span className="text-neutral-400">{label}</span>
-      <span className="font-medium text-neutral-800">{value}</span>
-      <svg width="10" height="10" viewBox="0 0 10 10" className="ml-0.5 text-neutral-400" fill="none">
-        <path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
-  )
-}
-
-const dateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+import { sites } from '../data/sites'
+import type { DetectionStatus } from '../data/types'
+import { DateRangeControl } from './controls/DateRangeControl'
+import { SitesControl } from './controls/SitesControl'
+import { StatusControl } from './controls/StatusControl'
 
 export function HeatmapHeader({
   start,
   end,
-  siteCount,
-  totalSites,
+  onDateChange,
+  statuses,
+  onToggleStatus,
+  selectedSiteIds,
+  onToggleSite,
+  onSetAllSites,
+  groupByHabitat,
+  onToggleGroupByHabitat,
 }: {
   start: number
   end: number
-  siteCount: number
-  totalSites: number
+  onDateChange: (start: number, end: number) => void
+  statuses: Set<DetectionStatus>
+  onToggleStatus: (status: DetectionStatus) => void
+  selectedSiteIds: Set<string>
+  onToggleSite: (id: string) => void
+  onSetAllSites: (on: boolean) => void
+  groupByHabitat: boolean
+  onToggleGroupByHabitat: () => void
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -33,10 +34,16 @@ export function HeatmapHeader({
         <p className="mt-0.5 text-xs text-neutral-400">Acoustic detections by taxon &amp; site</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <ControlPill label="Start" value={dateFmt.format(start)} />
-        <ControlPill label="End" value={dateFmt.format(end)} />
-        <ControlPill label="Status" value="Verified & Pending" />
-        <ControlPill label="Sites" value={siteCount === totalSites ? `All ${totalSites}` : `${siteCount} selected`} />
+        <DateRangeControl start={start} end={end} onChange={onDateChange} />
+        <StatusControl statuses={statuses} onToggle={onToggleStatus} />
+        <SitesControl
+          sites={sites}
+          selectedSiteIds={selectedSiteIds}
+          onToggleSite={onToggleSite}
+          onSetAll={onSetAllSites}
+          groupByHabitat={groupByHabitat}
+          onToggleGroupByHabitat={onToggleGroupByHabitat}
+        />
       </div>
     </div>
   )
