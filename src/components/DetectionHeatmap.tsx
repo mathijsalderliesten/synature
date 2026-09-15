@@ -2,8 +2,9 @@ import { useMemo } from 'react'
 import { sites } from '../data/sites'
 import { useHeatmapState } from '../hooks/useHeatmapState'
 import { buildColumns } from '../lib/aggregate'
-import { buildClassSections, buildRowEntry } from '../lib/rowList'
-import { nodeById, rootTaxa } from '../lib/taxonomyTree'
+import { buildRowEntry, buildRowList } from '../lib/rowList'
+import { getChildren, nodeById } from '../lib/taxonomyTree'
+import { Breadcrumb } from './Breadcrumb'
 import { HeatmapGrid } from './HeatmapGrid'
 import { HeatmapHeader } from './HeatmapHeader'
 import { HeatmapLegend } from './HeatmapLegend'
@@ -15,14 +16,15 @@ export function DetectionHeatmap() {
     filters,
     selectedSiteIds,
     groupByHabitat,
+    currentParentId,
+    breadcrumb,
     pinned,
     colorMode,
     showCounts,
     hideRareEnabled,
     hideRareThreshold,
     topN,
-    expandedClassIds,
-    otherExpandedByClass,
+    otherExpanded,
     highlightedTaxonId,
   } = state
 
@@ -31,29 +33,35 @@ export function DetectionHeatmap() {
     [selectedSiteIds, groupByHabitat],
   )
 
-  const pinnedRows = useMemo(
-    () =>
-      [...pinned]
-        .map((id) => nodeById.get(id))
-        .filter((n): n is NonNullable<typeof n> => n !== undefined)
-        .map((n) => buildRowEntry(n, columns, filters)),
-    [pinned, columns, filters],
+  const currentLevelNodes = useMemo(() => getChildren(currentParentId), [currentParentId])
+
+  const pinnedNodes = useMemo(
+    () => [...pinned].map((id) => nodeById.get(id)).filter((n): n is NonNullable<typeof n> => n !== undefined),
+    [pinned],
   )
 
-  const sections = useMemo(
+  const pinnedRows = useMemo(
+    () => pinnedNodes.map((n) => buildRowEntry(n, columns, filters)),
+    [pinnedNodes, columns, filters],
+  )
+
+  const mainNodes = useMemo(
+    () => currentLevelNodes.filter((n) => !pinned.has(n.id)),
+    [currentLevelNodes, pinned],
+  )
+
+  const { rows: mainRows, otherRow, hiddenRareCount } = useMemo(
     () =>
-      buildClassSections(rootTaxa, columns, filters, pinned, {
+      buildRowList(mainNodes, columns, filters, {
         topN,
         hideRareThreshold: hideRareEnabled ? hideRareThreshold : null,
-        otherExpandedClassIds: otherExpandedByClass,
+        otherExpanded,
       }),
-    [columns, filters, pinned, topN, hideRareEnabled, hideRareThreshold, otherExpandedByClass],
+    [mainNodes, columns, filters, topN, hideRareEnabled, hideRareThreshold, otherExpanded],
   )
 
-  const hiddenRareCount = useMemo(
-    () => sections.reduce((sum, s) => sum + s.hiddenRareCount, 0),
-    [sections],
-  )
+  const allRows = [...pinnedRows, ...mainRows, ...(otherRow ? [otherRow] : [])]
+  const globalMax = Math.max(1, ...allRows.flatMap((r) => [...r.counts.values()]))
 
   return (
     <div className="mx-auto max-w-7xl rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
@@ -73,19 +81,7 @@ export function DetectionHeatmap() {
       />
 
       <div className="mt-5 flex flex-wrap items-end justify-between gap-6 border-t border-neutral-100 pt-5">
-        <HeatmapLegend
-          mode={colorMode}
-          onModeChange={state.setColorMode}
-          globalMax={Math.max(
-            1,
-            ...pinnedRows.flatMap((r) => [...r.counts.values()]),
-            ...sections.flatMap((s) => [
-              ...s.classRow.counts.values(),
-              ...s.speciesRows.flatMap((r) => [...r.counts.values()]),
-              ...(s.otherRow ? [...s.otherRow.counts.values()] : []),
-            ]),
-          )}
-        />
+        <HeatmapLegend mode={colorMode} onModeChange={state.setColorMode} globalMax={globalMax} />
         <RowToolbar
           showCounts={showCounts}
           onToggleShowCounts={() => state.setShowCounts((v) => !v)}
@@ -97,20 +93,24 @@ export function DetectionHeatmap() {
         />
       </div>
 
-      <div className="mt-4 pb-8">
+      <div className="mt-4">
+        <Breadcrumb path={breadcrumb} onNavigate={state.goToBreadcrumb} />
+      </div>
+
+      <div className="mt-3 pb-8">
         <HeatmapGrid
           pinnedRows={pinnedRows}
           pinned={pinned}
-          sections={sections}
+          mainRows={mainRows}
+          otherRow={otherRow}
           columns={columns}
           colorMode={colorMode}
           showCounts={showCounts}
           onTogglePin={state.togglePin}
-          expandedClassIds={expandedClassIds}
-          onToggleClassExpanded={state.toggleClassExpanded}
-          onToggleOtherForClass={state.toggleOtherExpandedForClass}
+          onDrillInto={state.drillInto}
+          otherExpanded={otherExpanded}
+          onToggleOtherExpanded={() => state.setOtherExpanded((v) => !v)}
           highlightedTaxonId={highlightedTaxonId}
-          topN={topN}
         />
       </div>
     </div>

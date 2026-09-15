@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { sites } from '../data/sites'
 import type { DetectionStatus } from '../data/types'
 import { defaultFilters } from '../lib/aggregate'
-import { nodeById } from '../lib/taxonomyTree'
+import { getAncestors, nodeById } from '../lib/taxonomyTree'
 
 export type ColorMode = 'relative' | 'absolute'
 
@@ -21,39 +21,36 @@ export function useHeatmapState() {
   const [groupByHabitat, setGroupByHabitat] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
-  const [expandedClassIds, setExpandedClassIds] = useState<Set<string>>(new Set())
+  const [drillPath, setDrillPath] = useState<string[]>([])
   const [pinned, setPinned] = useState<Set<string>>(new Set())
   const [colorMode, setColorMode] = useState<ColorMode>('relative')
   const [showCounts, setShowCounts] = useState(false)
   const [hideRareEnabled, setHideRareEnabled] = useState(false)
-  const [otherExpandedByClass, setOtherExpandedByClass] = useState<Set<string>>(new Set())
+  const [otherExpanded, setOtherExpanded] = useState(false)
   const [highlightedTaxonId, setHighlightedTaxonId] = useState<string | null>(null)
 
   const filters = useMemo(() => ({ start, end, statuses }), [start, end, statuses])
 
-  const toggleClassExpanded = useCallback((classId: string) => {
-    setExpandedClassIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(classId)) next.delete(classId)
-      else next.add(classId)
-      return next
-    })
+  const currentParentId = drillPath.length ? drillPath[drillPath.length - 1] : null
+
+  const drillInto = useCallback((taxonId: string) => {
+    setDrillPath((path) => [...path, taxonId])
+    setOtherExpanded(false)
+    setHighlightedTaxonId(null)
   }, [])
 
-  const toggleOtherExpandedForClass = useCallback((classId: string) => {
-    setOtherExpandedByClass((prev) => {
-      const next = new Set(prev)
-      if (next.has(classId)) next.delete(classId)
-      else next.add(classId)
-      return next
-    })
+  const goToBreadcrumb = useCallback((index: number) => {
+    // index -1 = root ("All"); 0..n-1 = position within drillPath
+    setDrillPath((path) => (index < 0 ? [] : path.slice(0, index + 1)))
+    setOtherExpanded(false)
+    setHighlightedTaxonId(null)
   }, [])
 
-  const togglePin = useCallback((speciesId: string) => {
+  const togglePin = useCallback((taxonId: string) => {
     setPinned((prev) => {
       const next = new Set(prev)
-      if (next.has(speciesId)) next.delete(speciesId)
-      else next.add(speciesId)
+      if (next.has(taxonId)) next.delete(taxonId)
+      else next.add(taxonId)
       return next
     })
   }, [])
@@ -88,15 +85,19 @@ export function useHeatmapState() {
     })
   }, [])
 
-  /** Expand a species' class (and its "Other" bucket, if it's tucked inside one) and highlight it. */
+  /** Drill down to a species' parent level and highlight it, expanding "Other" if it's tucked inside one. */
   const jumpToSpecies = useCallback((speciesId: string) => {
-    const species = nodeById.get(speciesId)
-    if (!species?.parentId) return
-    const classId = species.parentId
-    setExpandedClassIds((prev) => new Set(prev).add(classId))
-    setOtherExpandedByClass((prev) => new Set(prev).add(classId))
+    const ancestors = getAncestors(speciesId) // [Class, Order, Family, Genus, Species]
+    const path = ancestors.slice(0, -1).map((n) => n.id)
+    setDrillPath(path)
+    setOtherExpanded(true)
     setHighlightedTaxonId(speciesId)
   }, [])
+
+  const breadcrumb = useMemo(
+    () => drillPath.map((id) => nodeById.get(id)).filter((n): n is NonNullable<typeof n> => n !== undefined),
+    [drillPath],
+  )
 
   return {
     filters,
@@ -109,8 +110,11 @@ export function useHeatmapState() {
     toggleStatus,
     filtersOpen,
     setFiltersOpen,
-    expandedClassIds,
-    toggleClassExpanded,
+    currentParentId,
+    drillPath,
+    breadcrumb,
+    drillInto,
+    goToBreadcrumb,
     pinned,
     togglePin,
     colorMode,
@@ -121,8 +125,8 @@ export function useHeatmapState() {
     setHideRareEnabled,
     hideRareThreshold: HIDE_RARE_THRESHOLD,
     topN: TOP_N,
-    otherExpandedByClass,
-    toggleOtherExpandedForClass,
+    otherExpanded,
+    setOtherExpanded,
     highlightedTaxonId,
     setHighlightedTaxonId,
     jumpToSpecies,
